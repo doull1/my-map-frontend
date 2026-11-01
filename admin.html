@@ -1,0 +1,388 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <title>项目数据管理</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { font-family: -apple-system, "Microsoft YaHei", sans-serif; background: #f0f2f5; margin: 0; padding: 24px; color: #333; }
+    .header { max-width: 1000px; margin: 0 auto 20px; display: flex; justify-content: space-between; align-items: center; }
+    h2 { margin: 0; color: #1a3d6d; font-size: 22px; }
+    .toolbar { display: flex; gap: 10px; align-items: center; }
+
+    button { padding: 8px 14px; border: 1px solid #c9d6e6; background: #fff; border-radius: 5px; cursor: pointer; font-size: 13px; transition: all 0.2s; }
+    button:hover { background: #eef4fb; }
+    button.primary { background: #2c7be5; color: #fff; border-color: #2c7be5; }
+    button.primary:hover { background: #1a63c4; }
+    button.danger { color: #c0392b; border-color: #f0b8b8; }
+    button.danger:hover { background: #fdf0f0; }
+    button.text-btn { border: none; background: transparent; color: #2c7be5; padding: 4px 8px; }
+    button.text-btn:hover { background: #eef4fb; }
+
+    .file-status { font-size: 12px; color: #888; margin-left: 6px; }
+
+    #editorList { max-width: 1000px; margin: 0 auto; }
+
+    /* 省级卡片 */
+    .province-card { background: #fff; border-radius: 8px; padding: 20px; margin-bottom: 24px; box-shadow: 0 2px 8px rgba(0,0,0,.06); border-top: 4px solid #2c7be5; }
+    .card-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; padding-bottom: 12px; border-bottom: 1px solid #eee; }
+    .card-head h3 { margin: 0; font-size: 18px; color: #1a3d6d; }
+
+    /* 市级列表 */
+    .city-list { display: flex; flex-direction: column; gap: 16px; }
+
+    /* 市级独立卡片 */
+    .city-card { background: #f9fbfd; border: 1px solid #e1e8f0; border-radius: 6px; padding: 16px; }
+    .city-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+    .city-head h4 { margin: 0; font-size: 16px; color: #0056b3; }
+
+    /* 项目列表容器 */
+    .project-list { display: flex; flex-direction: column; gap: 12px; }
+    /* 具体项目卡片 */
+    .project-card { background: #fff; border: 1px solid #d6dde8; border-radius: 6px; padding: 16px; box-shadow: 0 1px 3px rgba(0,0,0,0.02); }
+
+    .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 12px; }
+    .form-group { display: flex; flex-direction: column; }
+    label { font-size: 12px; color: #666; margin-bottom: 4px; font-weight: bold; }
+    input { width: 100%; padding: 8px 12px; border: 1px solid #d6dde8; border-radius: 5px; font-size: 13px; transition: border-color 0.2s; }
+    input:focus { outline: none; border-color: #5b9bd5; box-shadow: 0 0 0 2px rgba(91,155,213,0.2); }
+
+    /* 详情属性 */
+    .detail-section { margin-top: 12px; background: #f5f7fa; border: 1px solid #e1e8f0; border-radius: 5px; padding: 12px; }
+    .detail-title { display: flex; justify-content: space-between; align-items: center; font-size: 13px; color: #555; font-weight: bold; margin-bottom: 8px; }
+    .detail-row { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
+    .detail-row input.key-input { width: 120px; flex-shrink: 0; background: #fff; }
+    .detail-row input.val-input { flex: 1; }
+
+    .empty { color: #999; font-size: 13px; padding: 20px; text-align: center; border: 1px dashed #d6dde8; border-radius: 6px; }
+  </style>
+</head>
+<body>
+
+  <div class="header">
+    <h2>📊 项目数据管理</h2>
+    <div class="toolbar">
+      <button class="primary" data-action="openLocal">📂 打开 data.json</button>
+      <button class="primary" data-action="save">💾 保存到原文件</button>
+      <button data-action="addProvince">＋ 添加省份</button>
+      <button data-action="download">📥 下载文件</button>
+      <span id="fileStatus" class="file-status">正在加载…</span>
+    </div>
+  </div>
+
+  <div id="editorList"></div>
+
+  <script>
+    let DATA = {};
+    let fileHandle = null;
+    const statusEl = document.getElementById('fileStatus');
+    function setStatus(text) { statusEl.textContent = text; }
+
+    function migrateData(data) {
+      for (let p in data) {
+        if (!data[p].cities) data[p].cities = {};
+        for (let c in data[p].cities) {
+          let city = data[p].cities[c];
+          if (!city.projects) {
+            city.projects = [];
+            if (city.project || city.manager || (city.details && Object.keys(city.details).length > 0)) {
+              city.projects.push({
+                name: city.project || '未命名项目',
+                manager: city.manager || '',
+                details: city.details || {}
+              });
+            }
+            delete city.project;
+            delete city.manager;
+            delete city.details;
+          }
+        }
+      }
+      return data;
+    }
+
+    (async function autoLoad() {
+      try {
+        const res = await fetch('https://cdn.jsdelivr.net/gh/doull1/my-map-data@main/data.json');
+        if (!res.ok) throw new Error();
+        DATA = migrateData(await res.json());
+        renderAll();
+        setStatus('已自动读取，保存时需先选择文件');
+      } catch (e) {
+        setStatus('请点击“打开 data.json”');
+      }
+    })();
+
+    async function openLocal() {
+      if (!window.showOpenFilePicker) return alert('请使用 Chrome/Edge 浏览器');
+      try {
+        const [handle] = await window.showOpenFilePicker({ types: [{ accept: { 'application/json': ['.json'] } }] });
+        if (handle.queryPermission) {
+          let perm = await handle.queryPermission({ mode: 'readwrite' });
+          if (perm !== 'granted') await handle.requestPermission({ mode: 'readwrite' });
+        }
+        fileHandle = handle;
+        const file = await handle.getFile();
+        DATA = migrateData(JSON.parse(await file.text()));
+        renderAll();
+        setStatus('已绑定：' + handle.name);
+      } catch (err) { if (err.name !== 'AbortError') alert(err.message); }
+    }
+
+    // 🔥 优化后的保存逻辑
+    async function save() {
+      const json = JSON.stringify(DATA, null, 2);
+
+      // 1. 如果已经有绑定的文件，直接静默覆盖
+      if (fileHandle) {
+        try {
+          const writable = await fileHandle.createWritable();
+          await writable.write(json);
+          await writable.close();
+          setStatus('✅ 已保存 (' + new Date().toLocaleTimeString() + ')');
+          return;
+        } catch (err) { alert('写入失败：' + err.message); }
+      }
+
+      // 2. 如果没有绑定文件（页面自动加载的情况），弹出“另存为”窗口让用户选
+      if (window.showSaveFilePicker) {
+        try {
+          const handle = await window.showSaveFilePicker({
+            suggestedName: 'data.json',
+            types: [{ description: 'JSON 文件', accept: { 'application/json': ['.json'] } }]
+          });
+          const writable = await handle.createWritable();
+          await writable.write(json);
+          await writable.close();
+
+          // 保存成功后，记住这个文件，下次直接覆盖
+          fileHandle = handle;
+          setStatus('✅ 已绑定并保存 (' + new Date().toLocaleTimeString() + ')');
+          return;
+        } catch (err) {
+          if (err.name === 'AbortError') return; // 用户取消了保存
+          alert('保存失败：' + err.message);
+        }
+      }
+
+      // 3. 降级方案（如果浏览器不支持 File System API）
+      downloadFile(json);
+    }
+
+    function downloadFile(json) {
+      const blob = new Blob([json], { type: 'application/json' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = 'data.json'; a.click();
+      setStatus('已下载 data.json，请手动覆盖');
+    }
+
+    // ---- 增删逻辑 ----
+    function addProvince() {
+      const name = prompt('请输入省份全称（例如：福建省）');
+      if (!name) return;
+      if (DATA[name]) return alert('该省份已存在');
+      DATA[name] = { cities: {} };
+      renderAll();
+    }
+
+    function removeProvince(name) {
+      if (!confirm(`确定删除「${name}」及下属所有市、项目吗？`)) return;
+      delete DATA[name];
+      renderAll();
+    }
+
+    function addCity(provinceName) {
+      const city = prompt('请输入地级市全称（例如：龙岩市）');
+      if (!city) return;
+      if (!DATA[provinceName].cities) DATA[provinceName].cities = {};
+      if (DATA[provinceName].cities[city]) return alert('该市已存在');
+      DATA[provinceName].cities[city] = { projects: [] };
+      renderAll();
+    }
+
+    function removeCity(provinceName, cityName) {
+      if (!confirm(`确定删除「${provinceName} - ${cityName}」及下属所有项目吗？`)) return;
+      delete DATA[provinceName].cities[cityName];
+      renderAll();
+    }
+
+    function addProject(provinceName, cityName) {
+      DATA[provinceName].cities[cityName].projects.push({
+        name: '新项目', manager: '', details: {}
+      });
+      renderAll();
+    }
+
+    function removeProject(provinceName, cityName, projIndex) {
+      if (!confirm('确定删除该项目吗？')) return;
+      DATA[provinceName].cities[cityName].projects.splice(projIndex, 1);
+      renderAll();
+    }
+
+    function addDetail(provinceName, cityName, projIndex) {
+      const key = prompt('请输入属性名称（例如：业主方、进度）');
+      if (!key) return;
+      const proj = DATA[provinceName].cities[cityName].projects[projIndex];
+      if (!proj.details) proj.details = {};
+      if (proj.details[key] !== undefined) return alert('该属性已存在');
+      proj.details[key] = '';
+      renderAll();
+    }
+
+    function removeDetail(provinceName, cityName, projIndex, key) {
+      delete DATA[provinceName].cities[cityName].projects[projIndex].details[key];
+      renderAll();
+    }
+
+    function updateProjectField(provinceName, cityName, projIndex, field, value) {
+      DATA[provinceName].cities[cityName].projects[projIndex][field] = value;
+    }
+
+    function updateDetailField(provinceName, cityName, projIndex, oldKey, newKey, value) {
+      const details = DATA[provinceName].cities[cityName].projects[projIndex].details;
+      if (newKey !== oldKey) delete details[oldKey];
+      details[newKey] = value;
+    }
+
+    // ---- 渲染 ----
+    function escapeHtml(str) {
+      return String(str || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    }
+
+    function renderAll() {
+      const container = document.getElementById('editorList');
+      const provinces = Object.keys(DATA);
+
+      if (provinces.length === 0) {
+        container.innerHTML = '<div class="empty">暂无数据，请点击右上角“＋ 添加省份”开始。</div>';
+        return;
+      }
+
+      container.innerHTML = provinces.map(province => {
+        const cities = DATA[province].cities || {};
+        const cityKeys = Object.keys(cities);
+
+        const cityHtml = cityKeys.map(cityName => {
+          const projects = cities[cityName].projects || [];
+
+          const projectsHtml = projects.map((proj, pIdx) => {
+            const detailsHtml = Object.entries(proj.details || {}).map(([key, val]) => `
+              <div class="detail-row">
+                <input class="key-input" data-province="${province}" data-city="${cityName}" data-idx="${pIdx}" data-oldkey="${key}" data-iskey="true" value="${escapeHtml(key)}" placeholder="属性名">
+                <input class="val-input" data-province="${province}" data-city="${cityName}" data-idx="${pIdx}" data-oldkey="${key}" value="${escapeHtml(val)}" placeholder="属性值">
+                <button class="danger" data-action="removeDetail" data-province="${province}" data-city="${cityName}" data-idx="${pIdx}" data-key="${key}">删</button>
+              </div>
+            `).join('');
+
+            return `
+              <div class="project-card">
+                <div class="city-head" style="margin-bottom:12px; border-bottom:1px dashed #eee; padding-bottom:8px;">
+                  <h4 style="color:#333; font-size:15px;">🏗️ 项目 ${pIdx + 1}</h4>
+                  <button class="danger" data-action="removeProject" data-province="${province}" data-city="${cityName}" data-idx="${pIdx}">删除项目</button>
+                </div>
+
+                <div class="form-grid">
+                  <div class="form-group">
+                    <label>项目名称（必填）</label>
+                    <input data-province="${province}" data-city="${cityName}" data-idx="${pIdx}" data-field="name" value="${escapeHtml(proj.name)}" placeholder="例如：国能龙岩#5机组A级检修项目">
+                  </div>
+                  <div class="form-group">
+                    <label>负责人</label>
+                    <input data-province="${province}" data-city="${cityName}" data-idx="${pIdx}" data-field="manager" value="${escapeHtml(proj.manager)}" placeholder="例如：张三">
+                  </div>
+                </div>
+
+                <div class="detail-section">
+                  <div class="detail-title">
+                    <span>📋 项目附加属性</span>
+                    <button class="text-btn" data-action="addDetail" data-province="${province}" data-city="${cityName}" data-idx="${pIdx}">＋ 添加属性</button>
+                  </div>
+                  ${detailsHtml || '<div style="font-size:12px;color:#aaa;">暂无附加属性</div>'}
+                </div>
+              </div>
+            `;
+          }).join('');
+
+          return `
+            <div class="city-card">
+              <div class="city-head">
+                <h4>📍 ${escapeHtml(province)} - ${escapeHtml(cityName)}</h4>
+                <div>
+                  <button class="primary" data-action="addProject" data-province="${province}" data-city="${cityName}">＋ 添加项目</button>
+                  <button class="danger" data-action="removeCity" data-province="${province}" data-city="${cityName}">删除该市</button>
+                </div>
+              </div>
+              <div class="project-list">
+                ${projectsHtml || '<div class="empty">该市暂无项目，点击右上方“＋ 添加项目”开始。</div>'}
+              </div>
+            </div>
+          `;
+        }).join('');
+
+        return `
+          <div class="province-card">
+            <div class="card-head">
+              <h3>🗺️ ${escapeHtml(province)}</h3>
+              <div>
+                <button class="primary" data-action="addCity" data-province="${province}">＋ 添加市</button>
+                <button class="danger" data-action="removeProvince" data-province="${province}">删除该省</button>
+              </div>
+            </div>
+            <div class="city-list">
+              ${cityHtml || '<div class="empty">该省暂无市级记录。点击右上方“＋ 添加市”进行添加。</div>'}
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
+
+    // ---- 事件委托 ----
+    document.querySelector('.toolbar').addEventListener('click', e => {
+      const btn = e.target.closest('button[data-action]');
+      if (!btn) return;
+      const action = btn.dataset.action;
+      if (action === 'openLocal') openLocal();
+      if (action === 'save') save();
+      if (action === 'addProvince') addProvince();
+      if (action === 'download') downloadFile(JSON.stringify(DATA, null, 2));
+    });
+
+    const editorList = document.getElementById('editorList');
+
+    editorList.addEventListener('change', e => {
+      const input = e.target;
+      if (!input.matches('input')) return;
+      const p = input.dataset.province;
+      const c = input.dataset.city;
+      const idx = parseInt(input.dataset.idx);
+
+      if (input.dataset.field) {
+        updateProjectField(p, c, idx, input.dataset.field, input.value);
+      } else if (input.dataset.iskey) {
+        updateDetailField(p, c, idx, input.dataset.oldkey, input.value, input.nextElementSibling.value);
+        renderAll();
+      } else if (input.dataset.oldkey) {
+        updateDetailField(p, c, idx, input.dataset.oldkey, input.dataset.oldkey, input.value);
+      }
+    });
+
+    editorList.addEventListener('click', e => {
+      const btn = e.target.closest('button[data-action]');
+      if (!btn) return;
+      const { action, province, city, key } = btn.dataset;
+      const idx = parseInt(btn.dataset.idx);
+
+      if (action === 'removeProvince') removeProvince(province);
+      if (action === 'addCity') addCity(province);
+      if (action === 'removeCity') removeCity(province, city);
+      if (action === 'addProject') addProject(province, city);
+      if (action === 'removeProject') removeProject(province, city, idx);
+      if (action === 'addDetail') addDetail(province, city, idx);
+      if (action === 'removeDetail') removeDetail(province, city, idx, key);
+    });
+
+    renderAll();
+  </script>
+</body>
+</html>
