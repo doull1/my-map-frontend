@@ -9,11 +9,11 @@
     * { margin: 0; padding: 0; box-sizing: border-box; }
     html, body { width: 100%; height: 100%; overflow: hidden; background-color: #e9ecef; }
     #map { width: 100vw; height: 100vh; position: absolute; top: 0; left: 0; background: transparent; }
-
+    
     #loading {
       position: absolute; top: 0; left: 0; width: 100vw; height: 100vh;
-      background: rgba(255,255,255,0.8); z-index: 9999;
-      display: flex; justify-content: center; align-items: center;
+      background: rgba(255,255,255,0.9); z-index: 9999;
+      display: flex; flex-direction: column; justify-content: center; align-items: center;
       font-size: 18px; color: #1a3d6d; font-weight: bold;
     }
 
@@ -42,7 +42,7 @@
     .panel-header { display: flex; justify-content: space-between; align-items: center; padding: 14px 18px; border-bottom: 1px solid #eee; font-size: 16px; font-weight: bold; color: #1a3d6d; }
     .panel-close { border: none; background: none; font-size: 22px; cursor: pointer; color: #999; line-height: 1; }
     .panel-body { padding: 16px 18px; overflow-y: auto; flex: 1; font-size: 13px; line-height: 1.8; color: #333; }
-
+    
     .project-block { background: #f9fbfd; border: 1px solid #e1e8f0; border-radius: 6px; margin-bottom: 16px; padding: 16px; }
     .proj-title { font-size: 15px; font-weight: bold; color: #2c7be5; margin-bottom: 8px; border-bottom: 1px dashed #eee; padding-bottom: 6px; }
     .proj-row { margin-bottom: 8px; }
@@ -67,9 +67,9 @@
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <script>
     const chinaBounds = [[3.8, 73.4], [53.6, 135.1]];
-    const map = L.map('map', {
+    const map = L.map('map', { 
       zoomControl: true, preferCanvas: true,
-      maxBounds: chinaBounds, maxBoundsViscosity: 1.0, minZoom: 4, maxZoom: 8
+      maxBounds: chinaBounds, maxBoundsViscosity: 1.0, minZoom: 4, maxZoom: 8                     
     }).setView([35.5, 104], 4);
 
     L.tileLayer('https://webrd0{s}.is.autonavi.com/appmaptile?lang=zh_cn&size=1&scale=1&style=8&x={x}&y={y}&z={z}', {
@@ -82,7 +82,7 @@
 
     let flatData = {};
 
-    // 🔥 解密 ECharts 加密坐标算法
+    // ================= 核心：解密算法 =================
     function decodePolygon(coordinate, encodeOffsets, encodeScale) {
       var result = [];
       var prevX = encodeOffsets[0];
@@ -127,22 +127,29 @@
       delete geojson.UTF8Encoding;
       return geojson;
     }
+    // =================================================
 
-    // 🔥 数据源链接（已修正指向）
-    const mapDataUrl = 'https://cdn.jsdelivr.net/gh/doull1/my-map-frontend@main/china-cities.json';
-    const projectDataUrl = 'https://cdn.jsdelivr.net/gh/doull1/my-map-data@main/data.json';
+    const mapDataUrl = 'https://cdn.jsdelivr.net/gh/doull1/my-map-frontend@main/china-cities.json?v=' + Date.now();
+    const projectDataUrl = 'https://cdn.jsdelivr.net/gh/doull1/my-map-data@main/data.json?v=' + Date.now();
 
     Promise.all([
-      fetch(projectDataUrl + '?v=' + Date.now()).then(res => res.json()),
-      fetch(mapDataUrl).then(res => res.json())
+      fetch(projectDataUrl).then(res => {
+        if(!res.ok) throw new Error("项目数据 data.json 读取失败，可能是链接错误或文件还没同步！");
+        return res.json();
+      }),
+      fetch(mapDataUrl).then(res => {
+        if(!res.ok) throw new Error("地图边界 china-cities.json 读取失败，可能是链接错误或文件还没同步！");
+        return res.json();
+      })
     ]).then(([userData, cityGeoData]) => {
-
-      document.getElementById('loading').style.display = 'none';
-
-      // 解析地图数据
+      
+      // 1. 先解密地图数据
       const standardGeoData = decodeGeoJSON(cityGeoData);
+      if (!standardGeoData.features || standardGeoData.features.length === 0) {
+        throw new Error("地图数据为空，请检查 china-cities.json 是否损坏！");
+      }
 
-      // 解析业务数据
+      // 2. 解析业务数据
       for (let province in userData) {
         let provInfo = userData[province];
         if (provInfo.cities) {
@@ -157,6 +164,8 @@
         }
       }
 
+      document.getElementById('loading').style.display = 'none';
+
       function getCityProjects(cityName) {
         if (flatData[cityName]) return flatData[cityName];
         let pureName = cityName.replace(/(市|地区|自治州|盟|区)$/, '');
@@ -167,6 +176,7 @@
         return null;
       }
 
+      // 3. 渲染地图
       L.geoJSON(standardGeoData, {
         style: function(feature) {
           let projects = getCityProjects(feature.properties.name);
@@ -197,7 +207,13 @@
       }).addTo(map);
 
     }).catch(err => {
-      document.getElementById('loading').innerText = "加载失败，请检查网络！";
+      document.getElementById('loading').innerHTML = `
+        <div style="color: red; text-align: center; padding: 20px;">
+          <h3>加载失败</h3>
+          <p>${err.message}</p>
+          <p style="font-size: 14px; color: #666; margin-top: 10px;">请按 F12 查看控制台网络请求，或者刷新页面重试。</p>
+        </div>
+      `;
       console.error(err);
     });
 
@@ -214,7 +230,7 @@
       }
 
       title.textContent = `${regionName} (${projects.length} 个项目)`;
-
+      
       const blocksHtml = projects.map((proj, index) => {
         const detailRows = Object.entries(proj.details || {})
           .map(([key, val]) => `<div class="proj-row"><span class="proj-label">${key}</span><span class="proj-val">${val || '—'}</span></div>`)
