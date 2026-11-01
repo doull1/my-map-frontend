@@ -43,13 +43,11 @@
     .panel-close { border: none; background: none; font-size: 22px; cursor: pointer; color: #999; line-height: 1; }
     .panel-body { padding: 16px 18px; overflow-y: auto; flex: 1; font-size: 13px; line-height: 1.8; color: #333; }
 
-    /* 多项目列表样式 */
     .project-block { background: #f9fbfd; border: 1px solid #e1e8f0; border-radius: 6px; margin-bottom: 16px; padding: 16px; }
     .proj-title { font-size: 15px; font-weight: bold; color: #2c7be5; margin-bottom: 8px; border-bottom: 1px dashed #eee; padding-bottom: 6px; }
     .proj-row { margin-bottom: 8px; }
     .proj-label { color: #888; font-size: 12px; display: block; margin-bottom: 2px; }
     .proj-val { color: #222; }
-
     .empty { color: #999; text-align: center; padding: 40px 0; }
   </style>
 </head>
@@ -82,51 +80,77 @@
     const STYLE_NONE  = { color: '#a0b3c6', weight: 0.8, fillColor: 'transparent', fillOpacity: 0 };
     const STYLE_HOVER = { color: '#ff7a00', weight: 2.5, fillColor: '#ffb27a', fillOpacity: 0.9 };
 
-    // flatData 现在存储的是该市的【项目数组】
     let flatData = {};
 
-    async function fetchAllCities() {
-      try {
-        const rootRes = await fetch('https://geo.datav.aliyun.com/areas_v3/bound/100000_full.json');
-        const rootData = await rootRes.json();
-        const adcodes = rootData.features.map(f => f.properties.adcode).filter(Boolean);
-
-        const promises = adcodes.map(code =>
-          fetch(`https://geo.datav.aliyun.com/areas_v3/bound/${code}_full.json`)
-            .then(res => res.json())
-            .catch(() => null)
-        );
-
-        const provincesData = await Promise.all(promises);
-        const allFeatures = [];
-        provincesData.forEach(prov => {
-          if (prov && prov.features) allFeatures.push(...prov.features);
-        });
-        return { type: 'FeatureCollection', features: allFeatures };
-      } catch (e) {
-        alert("网络请求失败，请检查网络或防火墙设置。");
-        throw e;
+    // 🔥 解密 ECharts 加密坐标算法
+    function decodePolygon(coordinate, encodeOffsets, encodeScale) {
+      var result = [];
+      var prevX = encodeOffsets[0];
+      var prevY = encodeOffsets[1];
+      for (var i = 0; i < coordinate.length; i += 2) {
+        var x = coordinate.charCodeAt(i) - 64;
+        var y = coordinate.charCodeAt(i + 1) - 64;
+        x = (x >> 1) ^ (-(x & 1));
+        y = (y >> 1) ^ (-(y & 1));
+        x += prevX;
+        y += prevY;
+        prevX = x;
+        prevY = y;
+        x /= encodeScale;
+        y /= encodeScale;
+        result.push([x, y]);
       }
+      return result;
     }
 
+    function decodeGeoJSON(geojson) {
+      if (!geojson.UTF8Encoding) return geojson;
+      geojson.features.forEach(function (feature) {
+        var geometry = feature.geometry;
+        var encodeOffsets = geometry.encodeOffsets;
+        var coordinates = geometry.coordinates;
+        if (encodeOffsets) {
+          if (geometry.type === 'Polygon') {
+            for (var i = 0; i < coordinates.length; i++) {
+              coordinates[i] = decodePolygon(coordinates[i], encodeOffsets[i], 1024);
+            }
+          } else if (geometry.type === 'MultiPolygon') {
+            for (var i = 0; i < coordinates.length; i++) {
+              for (var j = 0; j < coordinates[i].length; j++) {
+                coordinates[i][j] = decodePolygon(coordinates[i][j], encodeOffsets[i][j], 1024);
+              }
+            }
+          }
+        }
+        delete geometry.encodeOffsets;
+      });
+      delete geojson.UTF8Encoding;
+      return geojson;
+    }
+
+    // 🔥 数据源链接（已修正指向）
+    const mapDataUrl = 'https://cdn.jsdelivr.net/gh/doull1/my-map-frontend@main/china-cities.json';
+    const projectDataUrl = 'https://cdn.jsdelivr.net/gh/doull1/my-map-data@main/data.json';
+
     Promise.all([
-      fetch('https://cdn.jsdelivr.net/gh/doull1/my-map-data@main/data.json').then(res => res.json()),
-      fetchAllCities()
-    ]).then(([userData, combinedGeoData]) => {
+      fetch(projectDataUrl + '?v=' + Date.now()).then(res => res.json()),
+      fetch(mapDataUrl).then(res => res.json())
+    ]).then(([userData, cityGeoData]) => {
 
       document.getElementById('loading').style.display = 'none';
 
-      // 解析多项目数据结构
+      // 解析地图数据
+      const standardGeoData = decodeGeoJSON(cityGeoData);
+
+      // 解析业务数据
       for (let province in userData) {
         let provInfo = userData[province];
         if (provInfo.cities) {
           for (let city in provInfo.cities) {
             let cityInfo = provInfo.cities[city];
-            // 如果有 projects 数组，就存进 flatData
             if (cityInfo.projects && cityInfo.projects.length > 0) {
               flatData[city] = cityInfo.projects;
             } else if (cityInfo.project) {
-              // 兼容旧数据
               flatData[city] = [{ name: cityInfo.project, manager: cityInfo.manager, details: cityInfo.details }];
             }
           }
@@ -143,7 +167,7 @@
         return null;
       }
 
-      L.geoJSON(combinedGeoData, {
+      L.geoJSON(standardGeoData, {
         style: function(feature) {
           let projects = getCityProjects(feature.properties.name);
           return (projects && projects.length > 0) ? STYLE_HAS : STYLE_NONE;
@@ -153,7 +177,6 @@
           let projects = getCityProjects(cityName);
 
           if (projects && projects.length > 0) {
-            // 悬停提示：如果是多个项目，显示项目数量
             let tooltipHtml = '';
             if (projects.length === 1) {
               tooltipHtml = `<div class="tip-title">${projects[0].name}</div>
@@ -192,7 +215,6 @@
 
       title.textContent = `${regionName} (${projects.length} 个项目)`;
 
-      // 循环生成项目区块
       const blocksHtml = projects.map((proj, index) => {
         const detailRows = Object.entries(proj.details || {})
           .map(([key, val]) => `<div class="proj-row"><span class="proj-label">${key}</span><span class="proj-val">${val || '—'}</span></div>`)
