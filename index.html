@@ -1,141 +1,206 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>中国市级项目分布地图</title>
-    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-    <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        html, body { width: 100%; height: 100%; overflow: hidden; background-color: #e9ecef; }
-        #map { width: 100vw; height: 100vh; position: absolute; top: 0; left: 0; }
-        #loading { position: absolute; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(255,255,255,0.9); z-index: 9999; display: flex; justify-content: center; align-items: center; font-size: 18px; color: #1a3d6d; font-weight: bold; }
-        .tip-title { font-size: 15px; font-weight: bold; margin-bottom: 4px; color: #1a3d6d; }
-        .tip-manager { font-size: 13px; color: #333; margin-bottom: 2px; }
-        .tip-province { font-size: 12px; color: #888; }
-        .tip-count { font-size: 12px; color: #e74c3c; font-weight: bold; margin-top: 4px; }
-        .legend { position: absolute; top: 20px; right: 20px; z-index: 1000; background: #fff; padding: 10px 14px; border-radius: 6px; box-shadow: 0 2px 8px rgba(0,0,0,.15); font-size: 12px; line-height: 1.8; }
-        .legend i { display: inline-block; width: 14px; height: 14px; margin-right: 6px; vertical-align: middle; border-radius: 2px; }
-        .legend .c-has { background: #2c7be5; }
-        .legend .c-none { background: #fff; border: 1px solid #a0b3c6; }
-        .detail-panel { position: absolute; top: 0; right: -450px; width: 420px; height: 100vh; background: #fff; box-shadow: -2px 0 12px rgba(0,0,0,.15); z-index: 1100; transition: right .3s ease; display: flex; flex-direction: column; }
-        .detail-panel.open { right: 0; }
-        .panel-header { display: flex; justify-content: space-between; align-items: center; padding: 14px 18px; border-bottom: 1px solid #eee; font-size: 16px; font-weight: bold; color: #1a3d6d; }
-        .panel-close { border: none; background: none; font-size: 22px; cursor: pointer; color: #999; line-height: 1; }
-        .panel-body { padding: 16px 18px; overflow-y: auto; flex: 1; font-size: 13px; line-height: 1.8; color: #333; }
-        .project-block { background: #f9fbfd; border: 1px solid #e1e8f0; border-radius: 6px; margin-bottom: 16px; padding: 16px; }
-        .proj-title { font-size: 15px; font-weight: bold; color: #2c7be5; margin-bottom: 8px; border-bottom: 1px dashed #eee; padding-bottom: 6px; }
-        .proj-row { margin-bottom: 8px; }
-        .proj-label { color: #888; font-size: 12px; display: block; margin-bottom: 2px; }
-        .proj-val { color: #222; }
-        .empty { color: #999; text-align: center; padding: 40px 0; }
-    </style>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <!-- 🔥 核心修复：解决阿里云接口 403 跨域拦截问题 -->
+  <meta name="referrer" content="no-referrer" />
+  <title>中国市级项目分布地图</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body { width: 100%; height: 100%; overflow: hidden; background-color: #e9ecef; }
+    #map { width: 100vw; height: 100vh; position: absolute; top: 0; left: 0; }
+    
+    #loading {
+      position: absolute; top: 0; left: 0; width: 100vw; height: 100vh;
+      background: rgba(255,255,255,0.9); z-index: 9999;
+      display: flex; flex-direction: column; justify-content: center; align-items: center;
+      font-size: 18px; color: #1a3d6d; font-weight: bold;
+    }
+
+    .tip-title   { font-size: 15px; font-weight: bold; margin-bottom: 4px; color: #1a3d6d; }
+    .tip-manager { font-size: 13px; color: #333; margin-bottom: 2px; }
+    .tip-province{ font-size: 12px; color: #888; }
+    .tip-count   { font-size: 12px; color: #e74c3c; font-weight: bold; margin-top: 4px; }
+
+    .legend {
+      position: absolute; top: 20px; right: 20px; z-index: 1000;
+      background: #fff; padding: 10px 14px; border-radius: 6px;
+      box-shadow: 0 2px 8px rgba(0,0,0,.15); font-size: 12px; line-height: 1.8;
+    }
+    .legend i { display: inline-block; width: 14px; height: 14px; margin-right: 6px; vertical-align: middle; border-radius: 2px; }
+    .legend .c-has  { background: #2c7be5; }
+    .legend .c-none { background: #fff; border: 1px solid #a0b3c6; }
+
+    .detail-panel {
+      position: absolute; top: 0; right: -450px;
+      width: 420px; height: 100vh; background: #fff;
+      box-shadow: -2px 0 12px rgba(0,0,0,.15);
+      z-index: 1100; transition: right .3s ease;
+      display: flex; flex-direction: column;
+    }
+    .detail-panel.open { right: 0; }
+    .panel-header { display: flex; justify-content: space-between; align-items: center; padding: 14px 18px; border-bottom: 1px solid #eee; font-size: 16px; font-weight: bold; color: #1a3d6d; }
+    .panel-close { border: none; background: none; font-size: 22px; cursor: pointer; color: #999; line-height: 1; }
+    .panel-body { padding: 16px 18px; overflow-y: auto; flex: 1; font-size: 13px; line-height: 1.8; color: #333; }
+    
+    .project-block { background: #f9fbfd; border: 1px solid #e1e8f0; border-radius: 6px; margin-bottom: 16px; padding: 16px; }
+    .proj-title { font-size: 15px; font-weight: bold; color: #2c7be5; margin-bottom: 8px; border-bottom: 1px dashed #eee; padding-bottom: 6px; }
+    .proj-row { margin-bottom: 8px; }
+    .proj-label { color: #888; font-size: 12px; display: block; margin-bottom: 2px; }
+    .proj-val { color: #222; }
+    .empty { color: #999; text-align: center; padding: 40px 0; }
+  </style>
 </head>
 <body>
-    <div id="loading">正在加载全国市级地图数据，请稍候...</div>
-    <div id="map"></div>
-    <div class="legend">
-        <div><i class="c-has"></i>有项目</div>
-        <div><i class="c-none"></i>暂无项目</div>
-    </div>
-    <div id="detailPanel" class="detail-panel">
-        <div class="panel-header"><span id="panelTitle">项目详情</span><button id="panelClose" class="panel-close">×</button></div>
-        <div id="panelBody" class="panel-body"></div>
-    </div>
 
-    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-    <script>
-        const chinaBounds = [[3.8, 73.4], [53.6, 135.1]];
-        const map = L.map('map', { preferCanvas: true, maxBounds: chinaBounds, maxBoundsViscosity: 1.0, minZoom: 4, maxZoom: 8 }).setView([35.5, 104], 4);
-        L.tileLayer('https://webrd0{s}.is.autonavi.com/appmaptile?lang=zh_cn&size=1&scale=1&style=8&x={x}&y={y}&z={z}', { subdomains: ['1', '2', '3', '4'], maxZoom: 18, opacity: 1 }).addTo(map);
+  <div id="loading">正在加载全国市级地图数据，请稍候...</div>
+  <div id="map"></div>
+  <div class="legend">
+    <div><i class="c-has"></i>有项目</div>
+    <div><i class="c-none"></i>暂无项目</div>
+  </div>
+  <div id="detailPanel" class="detail-panel">
+    <div class="panel-header"><span id="panelTitle">项目详情</span><button id="panelClose" class="panel-close">×</button></div>
+    <div id="panelBody" class="panel-body"></div>
+  </div>
 
-        const STYLE_HAS = { color: '#2c7be5', weight: 1.5, fillColor: '#5b9bd5', fillOpacity: 0.85 };
-        const STYLE_NONE = { color: '#a0b3c6', weight: 0.8, fillColor: 'transparent', fillOpacity: 0 };
-        const STYLE_HOVER = { color: '#ff7a00', weight: 2.5, fillColor: '#ffb27a', fillOpacity: 0.9 };
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script>
+    const chinaBounds = [[3.8, 73.4], [53.6, 135.1]];
+    const map = L.map('map', { 
+      zoomControl: true, preferCanvas: true,
+      maxBounds: chinaBounds, maxBoundsViscosity: 1.0, minZoom: 4, maxZoom: 8                     
+    }).setView([35.5, 104], 4);
 
-        let flatData = {};
+    // 加载高德底图
+    L.tileLayer('https://webrd0{s}.is.autonavi.com/appmaptile?lang=zh_cn&size=1&scale=1&style=8&x={x}&y={y}&z={z}', {
+      subdomains: ['1', '2', '3', '4'], maxZoom: 18, opacity: 1
+    }).addTo(map);
 
-        // ✅ 使用阿里云 DataV 标准 GeoJSON 数据源
-        const mapDataUrl = 'https://geo.datav.aliyun.com/areas_v3/bound/100000_full.json';
-        const projectDataUrl = 'https://cdn.jsdelivr.net/gh/doull1/my-map-data@main/data.json?v=' + Date.now();
+    const STYLE_HAS   = { color: '#2c7be5', weight: 1.5, fillColor: '#5b9bd5', fillOpacity: 0.85 };
+    const STYLE_NONE  = { color: '#a0b3c6', weight: 0.8, fillColor: 'transparent', fillOpacity: 0 };
+    const STYLE_HOVER = { color: '#ff7a00', weight: 2.5, fillColor: '#ffb27a', fillOpacity: 0.9 };
 
-        Promise.all([
-            fetch(projectDataUrl).then(res => res.json()),
-            fetch(mapDataUrl).then(res => res.json())
-        ]).then(([userData, cityGeoData]) => {
-            // 解析业务数据 (保持原有逻辑)
-            for (let province in userData) {
-                let provInfo = userData[province];
-                if (provInfo.cities) {
-                    for (let city in provInfo.cities) {
-                        let cityInfo = provInfo.cities[city];
-                        if (cityInfo.projects && cityInfo.projects.length > 0) {
-                            flatData[city] = cityInfo.projects;
-                        } else if (cityInfo.project) {
-                            flatData[city] = [{ name: cityInfo.project, manager: cityInfo.manager, details: cityInfo.details }];
-                        }
-                    }
-                }
+    let flatData = {};
+
+    // 使用阿里云 DataV 官方标准化 GeoJSON 数据源（不需要自己上传地图文件）
+    const mapDataUrl = 'https://geo.datav.aliyun.com/areas_v3/bound/100000_full.json';
+    // 你的业务数据链接
+    const projectDataUrl = 'https://cdn.jsdelivr.net/gh/doull1/my-map-data@main/data.json?v=' + Date.now();
+
+    Promise.all([
+      fetch(projectDataUrl).then(res => {
+        if (!res.ok) throw new Error("业务数据加载失败");
+        return res.json();
+      }),
+      fetch(mapDataUrl).then(res => {
+        if (!res.ok) throw new Error("地图边界数据加载失败");
+        return res.json();
+      })
+    ]).then(([userData, cityGeoData]) => {
+      
+      // 解析业务数据
+      for (let province in userData) {
+        let provInfo = userData[province];
+        if (provInfo.cities) {
+          for (let city in provInfo.cities) {
+            let cityInfo = provInfo.cities[city];
+            if (cityInfo.projects && cityInfo.projects.length > 0) {
+              flatData[city] = cityInfo.projects;
+            } else if (cityInfo.project) {
+              flatData[city] = [{ name: cityInfo.project, manager: cityInfo.manager, details: cityInfo.details }];
             }
-            document.getElementById('loading').style.display = 'none';
-
-            // 直接渲染标准 GeoJSON，无需解密
-            L.geoJSON(cityGeoData, {
-                style: function(feature) {
-                    let projects = getCityProjects(feature.properties.name);
-                    return (projects && projects.length > 0) ? STYLE_HAS : STYLE_NONE;
-                },
-                onEachFeature: function(feature, layer) {
-                    let cityName = feature.properties.name;
-                    let projects = getCityProjects(cityName);
-                    if (projects && projects.length > 0) {
-                        let tooltipHtml = `<div class="tip-title">${cityName}（共 ${projects.length} 个项目）</div><div class="tip-count">点击查看全部详情</div>`;
-                        layer.bindTooltip(tooltipHtml, { sticky: true, direction: 'top' });
-                    } else {
-                        layer.bindTooltip(`${cityName}（暂无项目）`, { sticky: true, direction: 'top' });
-                    }
-                    layer.on('mouseover', e => { e.target.setStyle(STYLE_HOVER); e.target.bringToFront(); });
-                    layer.on('mouseout', e => { e.target.setStyle((projects && projects.length > 0) ? STYLE_HAS : STYLE_NONE); });
-                    layer.on('click', e => { L.DomEvent.stopPropagation(e); openPanel(cityName, projects || null); });
-                }
-            }).addTo(map);
-        }).catch(err => {
-            document.getElementById('loading').innerHTML = `<div style="color:red; font-size:16px;">加载失败: ${err.message}</div>`;
-            console.error(err);
-        });
-
-        function getCityProjects(cityName) {
-            if (flatData[cityName]) return flatData[cityName];
-            let pureName = cityName.replace(/(市|地区|自治州|盟|区)$/, '');
-            if (flatData[pureName]) return flatData[pureName];
-            for (let k in flatData) {
-                if (k.replace(/(市|地区|自治州|盟|区)$/, '') === pureName) return flatData[k];
-            }
-            return null;
+          }
         }
+      }
 
-        function openPanel(regionName, projects) {
-            const title = document.getElementById('panelTitle');
-            const body = document.getElementById('panelBody');
-            const panel = document.getElementById('detailPanel');
-            if (!projects || projects.length === 0) {
-                title.textContent = regionName;
-                body.innerHTML = `<div class="empty">${regionName} 暂无项目详情</div>`;
-                panel.classList.add('open');
-                return;
-            }
-            title.textContent = `${regionName} (${projects.length} 个项目)`;
-            const blocksHtml = projects.map((proj) => {
-                const detailRows = Object.entries(proj.details || {}).map(([key, val]) => `<div class="proj-row"><span class="proj-label">${key}</span><span class="proj-val">${val || '—'}</span></div>`).join('');
-                return `<div class="project-block"><div class="proj-title">🏗️ ${proj.name}</div><div class="proj-row"><span class="proj-label">项目负责人</span><span class="proj-val">${proj.manager || '—'}</span></div>${detailRows}</div>`;
-            }).join('');
-            body.innerHTML = blocksHtml;
-            panel.classList.add('open');
+      document.getElementById('loading').style.display = 'none';
+
+      function getCityProjects(cityName) {
+        if (flatData[cityName]) return flatData[cityName];
+        let pureName = cityName.replace(/(市|地区|自治州|盟|区)$/, '');
+        if (flatData[pureName]) return flatData[pureName];
+        for (let k in flatData) {
+          if (k.replace(/(市|地区|自治州|盟|区)$/, '') === pureName) return flatData[k];
         }
+        return null;
+      }
 
-        function closePanel() { document.getElementById('detailPanel').classList.remove('open'); }
-        document.getElementById('panelClose').addEventListener('click', closePanel);
-        map.on('click', closePanel);
-    </script>
+      // 渲染地图
+      L.geoJSON(cityGeoData, {
+        style: function(feature) {
+          let projects = getCityProjects(feature.properties.name);
+          return (projects && projects.length > 0) ? STYLE_HAS : STYLE_NONE;
+        },
+        onEachFeature: function(feature, layer) {
+          let cityName = feature.properties.name;
+          let projects = getCityProjects(cityName);
+
+          if (projects && projects.length > 0) {
+            let tooltipHtml = '';
+            if (projects.length === 1) {
+              tooltipHtml = `<div class="tip-title">${projects[0].name}</div>
+                             <div class="tip-manager">负责人：${projects[0].manager || '—'}</div>`;
+            } else {
+              tooltipHtml = `<div class="tip-title">${cityName}（共 ${projects.length} 个项目）</div>
+                             <div class="tip-count">点击查看全部详情</div>`;
+            }
+            layer.bindTooltip(tooltipHtml + `<div class="tip-province">${cityName}</div>`, { sticky: true, direction: 'top' });
+          } else {
+            layer.bindTooltip(`${cityName}（暂无项目）`, { sticky: true, direction: 'top' });
+          }
+
+          layer.on('mouseover', e => { e.target.setStyle(STYLE_HOVER); e.target.bringToFront(); });
+          layer.on('mouseout', e => { e.target.setStyle((projects && projects.length > 0) ? STYLE_HAS : STYLE_NONE); });
+          layer.on('click', e => { L.DomEvent.stopPropagation(e); openPanel(cityName, projects || null); });
+        }
+      }).addTo(map);
+
+    }).catch(err => {
+      document.getElementById('loading').innerHTML = `<div style="color:red; font-size:16px;">加载失败: ${err.message}</div>`;
+      console.error(err);
+    });
+
+    function openPanel(regionName, projects) {
+      const title = document.getElementById('panelTitle');
+      const body  = document.getElementById('panelBody');
+      const panel = document.getElementById('detailPanel');
+
+      if (!projects || projects.length === 0) {
+        title.textContent = regionName;
+        body.innerHTML = `<div class="empty">${regionName} 暂无项目详情</div>`;
+        panel.classList.add('open');
+        return;
+      }
+
+      title.textContent = `${regionName} (${projects.length} 个项目)`;
+      
+      const blocksHtml = projects.map((proj) => {
+        const detailRows = Object.entries(proj.details || {})
+          .map(([key, val]) => `<div class="proj-row"><span class="proj-label">${key}</span><span class="proj-val">${val || '—'}</span></div>`)
+          .join('');
+
+        return `
+          <div class="project-block">
+            <div class="proj-title">🏗️ ${proj.name}</div>
+            <div class="proj-row">
+              <span class="proj-label">项目负责人</span>
+              <span class="proj-val">${proj.manager || '—'}</span>
+            </div>
+            ${detailRows}
+          </div>
+        `;
+      }).join('');
+
+      body.innerHTML = blocksHtml;
+      panel.classList.add('open');
+    }
+
+    function closePanel() { document.getElementById('detailPanel').classList.remove('open'); }
+    document.getElementById('panelClose').addEventListener('click', closePanel);
+    map.on('click', closePanel);
+  </script>
 </body>
 </html>
