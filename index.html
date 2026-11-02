@@ -11,35 +11,19 @@
     * { margin: 0; padding: 0; box-sizing: border-box; }
     html, body { width: 100%; height: 100%; overflow: hidden; background-color: #e9ecef; }
     #map { width: 100vw; height: 100vh; position: absolute; top: 0; left: 0; }
+    #loading { position: absolute; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(255,255,255,0.9); z-index: 9999; display: flex; justify-content: center; align-items: center; font-size: 18px; color: #1a3d6d; font-weight: bold; }
     
-    #loading {
-      position: absolute; top: 0; left: 0; width: 100vw; height: 100vh;
-      background: rgba(255,255,255,0.9); z-index: 9999;
-      display: flex; flex-direction: column; justify-content: center; align-items: center;
-      font-size: 18px; color: #1a3d6d; font-weight: bold;
-    }
-
-    .tip-title   { font-size: 15px; font-weight: bold; margin-bottom: 4px; color: #1a3d6d; }
+    .tip-title { font-size: 15px; font-weight: bold; margin-bottom: 4px; color: #1a3d6d; }
     .tip-manager { font-size: 13px; color: #333; margin-bottom: 2px; }
-    .tip-province{ font-size: 12px; color: #888; }
-    .tip-count   { font-size: 12px; color: #e74c3c; font-weight: bold; margin-top: 4px; }
-
-    .legend {
-      position: absolute; top: 20px; right: 20px; z-index: 1000;
-      background: #fff; padding: 10px 14px; border-radius: 6px;
-      box-shadow: 0 2px 8px rgba(0,0,0,.15); font-size: 12px; line-height: 1.8;
-    }
+    .tip-province { font-size: 12px; color: #888; }
+    .tip-count { font-size: 12px; color: #e74c3c; font-weight: bold; margin-top: 4px; }
+    
+    .legend { position: absolute; top: 20px; right: 20px; z-index: 1000; background: #fff; padding: 10px 14px; border-radius: 6px; box-shadow: 0 2px 8px rgba(0,0,0,.15); font-size: 12px; line-height: 1.8; }
     .legend i { display: inline-block; width: 14px; height: 14px; margin-right: 6px; vertical-align: middle; border-radius: 2px; }
-    .legend .c-has  { background: #2c7be5; }
+    .legend .c-has { background: #2c7be5; }
     .legend .c-none { background: #fff; border: 1px solid #a0b3c6; }
-
-    .detail-panel {
-      position: absolute; top: 0; right: -450px;
-      width: 420px; height: 100vh; background: #fff;
-      box-shadow: -2px 0 12px rgba(0,0,0,.15);
-      z-index: 1100; transition: right .3s ease;
-      display: flex; flex-direction: column;
-    }
+    
+    .detail-panel { position: absolute; top: 0; right: -450px; width: 420px; height: 100vh; background: #fff; box-shadow: -2px 0 12px rgba(0,0,0,.15); z-index: 1100; transition: right .3s ease; display: flex; flex-direction: column; }
     .detail-panel.open { right: 0; }
     .panel-header { display: flex; justify-content: space-between; align-items: center; padding: 14px 18px; border-bottom: 1px solid #eee; font-size: 16px; font-weight: bold; color: #1a3d6d; }
     .panel-close { border: none; background: none; font-size: 22px; cursor: pointer; color: #999; line-height: 1; }
@@ -69,12 +53,8 @@
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <script>
     const chinaBounds = [[3.8, 73.4], [53.6, 135.1]];
-    const map = L.map('map', { 
-      zoomControl: true, preferCanvas: true,
-      maxBounds: chinaBounds, maxBoundsViscosity: 1.0, minZoom: 4, maxZoom: 8                     
-    }).setView([35.5, 104], 4);
+    const map = L.map('map', { preferCanvas: true, maxBounds: chinaBounds, maxBoundsViscosity: 1.0, minZoom: 4, maxZoom: 8 }).setView([35.5, 104], 4);
 
-    // 加载高德底图
     L.tileLayer('https://webrd0{s}.is.autonavi.com/appmaptile?lang=zh_cn&size=1&scale=1&style=8&x={x}&y={y}&z={z}', {
       subdomains: ['1', '2', '3', '4'], maxZoom: 18, opacity: 1
     }).addTo(map);
@@ -85,32 +65,49 @@
 
     let flatData = {};
 
-    // 使用阿里云 DataV 官方标准化 GeoJSON 数据源（不需要自己上传地图文件）
-    const mapDataUrl = 'https://geo.datav.aliyun.com/areas_v3/bound/100000_full.json';
-    // 你的业务数据链接
+    // 🔥 动态请求全国所有的“市级”边界
+    async function fetchAllCities() {
+      try {
+        const rootRes = await fetch('https://geo.datav.aliyun.com/areas_v3/bound/100000_full.json');
+        const rootData = await rootRes.json();
+        const adcodes = rootData.features.map(f => f.properties.adcode).filter(Boolean);
+        
+        const promises = adcodes.map(code => 
+          fetch(`https://geo.datav.aliyun.com/areas_v3/bound/${code}_full.json`)
+            .then(res => res.json())
+            .catch(() => null)
+        );
+        
+        const provincesData = await Promise.all(promises);
+        const allFeatures = [];
+        provincesData.forEach(prov => {
+          if (prov && prov.features) allFeatures.push(...prov.features);
+        });
+        return { type: 'FeatureCollection', features: allFeatures };
+      } catch (e) {
+        throw new Error("地图数据下载超时，请刷新重试");
+      }
+    }
+
     const projectDataUrl = 'https://cdn.jsdelivr.net/gh/doull1/my-map-data@main/data.json?v=' + Date.now();
 
     Promise.all([
       fetch(projectDataUrl).then(res => {
-        if (!res.ok) throw new Error("业务数据加载失败");
+        if (!res.ok) throw new Error("data.json 文件读取失败");
         return res.json();
       }),
-      fetch(mapDataUrl).then(res => {
-        if (!res.ok) throw new Error("地图边界数据加载失败");
-        return res.json();
-      })
+      fetchAllCities()
     ]).then(([userData, cityGeoData]) => {
       
-      // 解析业务数据
+      // 解析业务数据（修复：匹配中文键名逻辑）
       for (let province in userData) {
         let provInfo = userData[province];
+        // 兼容 "cities" 键名
         if (provInfo.cities) {
           for (let city in provInfo.cities) {
             let cityInfo = provInfo.cities[city];
             if (cityInfo.projects && cityInfo.projects.length > 0) {
               flatData[city] = cityInfo.projects;
-            } else if (cityInfo.project) {
-              flatData[city] = [{ name: cityInfo.project, manager: cityInfo.manager, details: cityInfo.details }];
             }
           }
         }
