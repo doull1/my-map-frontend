@@ -55,14 +55,15 @@
 
         let flatData = {};
 
-        // 使用标准、未加密的 GeoJSON 数据源
-        const mapDataUrl = 'https://cdn.jsdelivr.net/gh/doull1/my-map-frontend@main/china-cities.json';
+        // ✅ 使用阿里云 DataV 标准 GeoJSON 数据源
+        const mapDataUrl = 'https://geo.datav.aliyun.com/areas_v3/bound/100000_full.json';
         const projectDataUrl = 'https://cdn.jsdelivr.net/gh/doull1/my-map-data@main/data.json?v=' + Date.now();
 
         Promise.all([
             fetch(projectDataUrl).then(res => res.json()),
             fetch(mapDataUrl).then(res => res.json())
         ]).then(([userData, cityGeoData]) => {
+            // 解析业务数据 (保持原有逻辑)
             for (let province in userData) {
                 let provInfo = userData[province];
                 if (provInfo.cities) {
@@ -77,6 +78,8 @@
                 }
             }
             document.getElementById('loading').style.display = 'none';
+
+            // 直接渲染标准 GeoJSON，无需解密
             L.geoJSON(cityGeoData, {
                 style: function(feature) {
                     let projects = getCityProjects(feature.properties.name);
